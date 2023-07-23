@@ -1,98 +1,159 @@
+#include <stdarg.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 #include "main.h"
-/**
-*call_sp - fun that get the fun and call it and check
-*for signs
-*@format: the str format
-*@i: pointer to the index of our format
-*@p: pointer to out struct
-*@pCount: pointer to our counter
-*@pa:pointer to our arguments
-*/
-void call_sp(const char *format, int *i, struct sp_char *p,
-int *pCount, va_list pa)
-{
-	int j, k = 3;
-	va_list ap; /* to copy the pa */
-	int index = *i;
-	int flagg = 0;
-	sign flag[] = {{'+', postive_sign}, {' ', space_sign}, {'#', window_sign},
-		{'\0', NULL}};
 
-	va_copy(ap, pa); /* copy the list of the arguments */
-	while (signIndex(format[index], flag) != -1)
+/**
+ * _printf - produces output according to a format
+ * @format: The specified format
+ *
+ * Return: The number of characters that were printed
+ */
+int _printf(const char *format, ...)
+{
+	int i = 0, tmp, processing_escape = FALSE, error = 1, last_token;
+	fmt_info_t fmt_info;
+	va_list args;
+
+	if (!format || (format[0] == '%' && format[1] == '\0'))
+		return (-1);
+	va_start(args, format);
+	write_to_buffer(0, -1);
+	for (i = 0; format && *(format + i) != '\0'; i++)
 	{
-		for (k = 0; flag[k].ch != '\0'; k++)/* if there are flags */
+		if (processing_escape)
 		{
-			if (format[index] == flag[k].ch)
-			{
-				if (format[index] == '+' && flagg < 2)
-					flagg = 1;
-				else if (format[index] == '#')
-					flagg = 2;
-				index++;
-				break;
-			}
+			tmp = read_format_info(format + i, args, &fmt_info, &last_token);
+			processing_escape = FALSE;
+			set_format_error(format, &i, tmp, last_token, &error);
+			if (is_specifier(fmt_info.spec))
+				write_format(&args, &fmt_info);
+			i += (is_specifier(fmt_info.spec) ? tmp : 0);
+		}
+		else
+		{
+			if (*(format + i) == '%')
+				processing_escape = TRUE;
+			else
+				_putchar(*(format + i));
 		}
 	}
-	j = spIndex(format[index], p);/* get the index of the sp */
-	if (j != -1) /* make sure it match */
+	write_to_buffer(0, 1);
+	va_end(args);
+	return (error <= 0 ? error : write_to_buffer('\0', -2));
+}
+
+/**
+ * write_format - Writes data formatted against some parameters
+ * @args_list: The arguments list
+ * @fmt_info: The format info parameters that were read
+ */
+void write_format(va_list *args_list, fmt_info_t *fmt_info)
+{
+	int i;
+	spec_printer_t spec_printers[] = {
+		{'%', convert_fmt_percent},
+		{'p', convert_fmt_p},
+		{'c', convert_fmt_c},
+		{'s', convert_fmt_s},
+		{'d', convert_fmt_di},
+		{'i', convert_fmt_di},
+		{'X', convert_fmt_xX},
+		{'x', convert_fmt_xX},
+		{'o', convert_fmt_o},
+		{'u', convert_fmt_u},
+		/* #begin custom specifiers */
+		{'b', convert_fmt_b},
+		{'R', convert_fmt_R},
+		{'r', convert_fmt_r},
+		{'S', convert_fmt_S},
+		/* #end */
+		{'F', convert_fmt_fF},
+		{'f', convert_fmt_fF},
+	};
+
+	for (i = 0; i < 23 && spec_printers[i].spec != '\0'; i++)
 	{
-		if (flag[k].ch != '\0')
-			flag[k].fun(flagg, flag[k].ch, j, ap, pCount);/* print flag */
-		p[j].fun(pa, pCount); /*print the argument  */
-		*i = index;
-	}
-	else
-	{
-		_putchar('%');
-		(*i)--;
-		*pCount += 1;
-		return;
+		if (fmt_info->spec == spec_printers[i].spec)
+		{
+			spec_printers[i].print_arg(args_list, fmt_info);
+			break;
+		}
 	}
 }
 
+/**
+ * _putstr - writes the given string to the buffer
+ * @str: The string to write
+ *
+ * Return: On success 1.
+ * On error, -1 is returned, and errno is set appropriately.
+ */
+int _putstr(char *str)
+{
+	int i, out;
+
+	for (i = 0; str && *(str + i) != 0; i++)
+		out = _putchar(*(str + i));
+	return (out);
+}
 
 /**
-*_printf - fun that do same as printf
-*@format: the string format
-*Return: num of charchter printed
-*/
-int _printf(const char *format, ...)
+ * _putchar - writes the character c to the buffer
+ * @c: The character to print
+ *
+ * Return: On success 1.
+ * On error, -1 is returned, and errno is set appropriately.
+ */
+int _putchar(char c)
 {
-	va_list pa; /* points to the arguments list */
-	int i, count = 0;
-	int *pCount = &count;
-	spChar type[] = {
-		{'s', print_str}, {'c', print_ch}, {'d', print_int},
-		{'i', print_int}, {'b', print_bi}, {'r', print_rev},
-		{'u', print_unsigned}, {'o', print_octal}, {'S', print_nonch},
-		{'x', print_lowerhex}, {'X', print_upperhex}, {'R', print_rot13},
-		{'p', print_addr}, {'\0', NULL}};
+	return (write_to_buffer(c, 0));
+}
 
-	if (format == NULL || (format[0] == '%' && format[1] == '\0'))
-		return (-1);
+/**
+ * write_to_buffer - Writes a char to the buffer based on an action code
+ * @c: The character to write
+ * @action: The action to perform (
+ * -1-> reset the static variables
+ * 0-> write char to buffer
+ * 1-> don't write character to buffer but empty buffer onto stdout
+ * -2-> the number of characters written to stdout)
+ *
+ * Return: On success 1.
+ * On error, -1 is returned, and errno is set appropriately.
+ */
+int write_to_buffer(char c, char action)
+{
+	static int i;
+	static int chars_count;
+	static char buffer[1024];
+	static char out;
 
-	va_start(pa, format);
-	for (i = 0; format[i] != '\0'; i++)
+	if (i < 1024 && action == 0)
 	{
-		if (format[i] != '%')
-		{
-			_putchar(format[i]); /* print the char */
-			*pCount += 1;
-		}
-		else if (format[i] == '%' && format[i + 1] != '%')
-		{
-			i++;/* get the char after the % */
-			call_sp(format, &i, type, pCount, pa);
-
-		}
-		else if (format[i] == '%' && format[i + 1] == '%')
-		{
-			i++;
-			_putchar(format[i]);
-			*pCount += 1;
-		}
+		out = chars_count < 1 ? 1 : out;
+		buffer[i] = c;
+		i++;
+		chars_count++;
 	}
-	va_end(pa);
-	return (count);
+	if (i >= 1024 || action == 1)
+	{
+		out = write(1, buffer, i);
+		fflush(stdout);
+		i = 0;
+		mem_set(buffer, 1024, 0);
+	}
+	if (action == -1)
+	{
+		i = 0;
+		chars_count = 0;
+		mem_set(buffer, 1024, 0);
+	}
+	if (action == -2)
+	{
+		return (chars_count);
+	}
+	return (out);
 }
