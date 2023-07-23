@@ -1,4 +1,2 @@
-printf 
-by
-AYELE MASRESHA
-YORDANOS ASFAW
+printf
+
